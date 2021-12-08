@@ -1,0 +1,18 @@
+{
+  "hostName": "172.16.50.193",
+  "userName": "anaq",
+  "password": "anaq",
+  "virtualHost": null,
+  "amqp": {
+    "bindings": [],
+    "baseRoutingKey": "TESTE",
+    "exchange": "TESTE.EXCHANGE",
+    "queue": {
+      "name": "",
+      "options": {
+        "durable": true,
+        "autoDelete": false
+      }
+    }
+  }
+}
