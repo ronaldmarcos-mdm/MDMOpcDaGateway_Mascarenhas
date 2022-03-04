@@ -12,7 +12,7 @@ namespace MDMOpcDaGateway.Console
 
         static void Main(string[] args)
         {
-            Sources.Process process = new Sources.Process();
+            Sources.Process process = new Sources.Process(log);
             System.Console.WriteLine("Initializng Process....");
             process.OnStart();
 			System.Console.ReadKey();
