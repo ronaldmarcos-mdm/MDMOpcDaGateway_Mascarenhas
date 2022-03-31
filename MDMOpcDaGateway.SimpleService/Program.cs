@@ -23,9 +23,9 @@ namespace MDMOpcDaGateway.SimpleService
 
                 x.RunAsLocalSystem();
 
-                x.SetServiceName("OpcDaGatewayMDM");
-                x.SetDisplayName("OpcDa Gateway MDM");
-                x.SetDescription("Industrial OpcDa Gateway MDM.");
+                x.SetServiceName("MDM.OpcDaToAMQP"); 
+                x.SetDisplayName("MDM OpcDa To AMQP");
+                x.SetDescription("Driver Comunication from OpcDa To AMQP");
             });
 
             int exitCodeValue = (int)Convert.ChangeType(exitCode, exitCode.GetTypeCode());

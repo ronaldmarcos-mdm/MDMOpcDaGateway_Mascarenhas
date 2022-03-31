@@ -4,37 +4,31 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using DriverAmqp.Sources;
-using NetApiSQL.ModeloMDM285.ModelosAnaq;
-using Newtonsoft.Json;
-using System.Collections;
 using IniParser.Model;
 using IniParser;
+using NetApiSQL.ModeloMDM285.ModelosAnaq;
 
 namespace MDMOpcDaGateway.Sources
 {
     public class Process
     {
 		    private static log4net.ILog log;//= log4net.LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-			private static readonly string path = @"config.ini";
-			private static readonly string pathCsvOpcDa = @"opc_da_map.csv";
-			private static readonly string pathCsvMatrikon = @"dataMatrikon";
-			private static readonly string base_path = AppDomain.CurrentDomain.BaseDirectory;
+			private static readonly string path = @"config.ini";	
+			public static readonly string base_path = AppDomain.CurrentDomain.BaseDirectory;
+			public static readonly string pathJsonOpcMsg = @"lastDataOpcMsg.json";
 			public static bool runOnce = true;
 			private static IniData config;
 
 			public static List<Driver> listDrivers;
 			public static List<ItemDriver> Items;
-			
-			public static ArrayList arrFullNames;
-			public static ArrayList arrTestsValues;	
+			public static Publisher pub;
 
 			private static GlobalMsgType message;
 			private static WrapperConnection amqp;
+
 			static string exchange;
 			static string routinKey;
-
-		    public static OPCClientDa opcDa;
-			public static Random rand = new Random();
+		
 			/// <summary>
 			/// LoadConfig() is the factory method, Read config.ini file and instance the specified driver
 			/// </summary>
@@ -44,52 +38,10 @@ namespace MDMOpcDaGateway.Sources
 			{
 				log = _log;
 				Console.WriteLine("process..");
-			}
-			public static void LoadConfig()
-			{				
-				log.Info(string.Format("Loading Config ..."));
-				string fullPath = Path.Combine(base_path, path);
-				log.Info(string.Format(fullPath));
-				Console.WriteLine("path to file: " + fullPath);
-
-				var parser = new FileIniDataParser();
-				listDrivers = new List<Driver>();
-				Items = new List<ItemDriver>();
-
-				if (File.Exists(fullPath))
-				{
-					config = parser.ReadFile(fullPath);				
-					foreach (SectionData section in config.Sections.ToArray())
-					{
-						log.Debug("Section Name: " + section.SectionName);					
-						foreach (KeyData key in section.Keys.ToArray())
-						{
-							log.Debug("Key Name:  " + key.KeyName + " Value:   " + key.Value.ToString());
-						}
-
-						string DriverType = config[section.SectionName]["Driver"];
-
-						if (DriverType == "OPCClient")
-						{						
-							Driver opcda = new OPCClientDa();
-							AddDriver(opcda, section);
-						}						
-						else
-						{
-							log.Info(DriverType + " : No reconized!");
-						}
-					}
-				}
-				else
-				{
-					log.Error("Ini File Configuration no exists!:  " + fullPath);
-					config = null;
-				}
-
-			}		
+			}					
 
 			public void OnStart()
-			{						
+			{				
 				LoadConfig();
 				Initialize();				
 		
@@ -103,50 +55,12 @@ namespace MDMOpcDaGateway.Sources
 				Console.WriteLine("Writing Items' Values to Server... \n");
 				InitRabbitMQ();
 			}
-		
-
-		    public static void InitRabbitMQ()
-			{
-				opcDa = new OPCClientDa();
-				log.Info(string.Format("Loading Amqp Driver Config..."));
-				var amqpConfig = Util.LoadAmqpConfig();
-				amqp = WrapperConnection.GetInstance();
-				amqp.SetConfig = amqpConfig;
-				Console.WriteLine("Connecting Amqp Driver...");
-				amqp.Connect();
-				Console.WriteLine("Amqp Driver Connected");
-				log.Info(string.Format("Amqp Driver Connected"));
-
-				exchange = amqpConfig.amqp.exchange; //"ANAQ.STREAM";
-				routinKey = amqpConfig.amqp.baseRoutingKey;//"ALTO.StreamDataEstadosEquipamento.Json";
-				log.Info(string.Format("exchange: " + exchange));
-				log.Info(string.Format("exchange: " + routinKey));
-				RunAmqp();
-			}
-
-			public static void RunAmqp()
-			{				
-				Subscriber sub = new Subscriber
-				{
-					SetConnection = amqp.GetConnection,
-					SetExchange = exchange,
-				};
-				sub.AddRoutingKey(routinKey);
-				sub.HandlerMessage += Sub_HandlerMessage;
-
-				sub.Init();
-				sub.Start();
-				
-				Console.WriteLine("Listening from RabbitMQ...\n");
-				log.Info(string.Format("Listening from RabbitMQ..."));
-				sub.Listen();				
-			}
 
 			public void OnStop()
 			{
 
 				log.Info(string.Format(" Stopping the Gateway MDM ..."));
-				foreach (Driver driver in Process.listDrivers)
+				foreach (Driver driver in listDrivers)
 				{
 					driver.running = false;
 					driver.globalRunning = false;
@@ -154,117 +68,118 @@ namespace MDMOpcDaGateway.Sources
 				}
 			}
 
-
-			private static void Sub_HandlerMessage(string mensage)
+			public static void LoadConfig()
 			{
-				
-				message = JsonConvert.DeserializeObject<GlobalMsgType>(mensage);		
+				log.Info(string.Format("Loading Config ..."));
+				string fullPath = Path.Combine(base_path, path);
+				log.Info(string.Format(fullPath));
+				Console.WriteLine("path to file: " + fullPath);
 
-				string jsonString = JsonConvert.SerializeObject(message.Data);
-				var dataObj = JsonConvert.DeserializeObject<List<DataEstadoEquipamento>>(jsonString);
+				var parser = new FileIniDataParser();
+				listDrivers = new List<Driver>();
+				Items = new List<ItemDriver>();
 
-				arrFullNames = new ArrayList();	
-				arrTestsValues = new ArrayList();
-
-				foreach (var data in dataObj)
+				if (File.Exists(fullPath))
 				{
-					foreach (var point in data.monitoredPoints)
+					config = parser.ReadFile(fullPath);
+					foreach (SectionData section in config.Sections.ToArray())
 					{
-						point.tests.ForEach(
-						   test => {
-							   arrFullNames.Add($"{point.fullName}.{test.name}");
-							   arrTestsValues.Add(test.value);
-						   }
-						);
+						log.Debug("Section Name: " + section.SectionName);
+						foreach (KeyData key in section.Keys.ToArray())
+						{
+							log.Debug("Key Name:  " + key.KeyName + " Value:   " + key.Value.ToString());
+						}
+
+						string DriverType = config[section.SectionName]["Driver"];
+
+						if (DriverType == "OPCClient")
+						{
+							Driver opcda = new OPCClientDa();
+							AddDriver(opcda, section);
+						}
+						else
+						{
+							log.Info(DriverType + " : No Recognized!");
+						}
 					}
 				}
+				else
+				{
+					log.Error("File .ini Configuration do not exists!: " + fullPath);
+					config = null;
+				}
 
-				/*while (runOnce)
+			}
+
+			public static StreamReader ReadMapFromFile(string _map)
+			{
+				string mapPath = Path.Combine(base_path, _map);
+				log.Info(string.Format("Path of Map: {0}", mapPath));
+
+				StreamReader sr;
+				if (File.Exists(mapPath))
 				{
-					SaveToCsvFileForMatrikon(arrFullNames);
-					SaveToCsvFileForOpcDa(arrFullNames);
-					runOnce = false;								
-				}*/
-				try
-				{
-					if (arrFullNames.Count>0 && arrTestsValues.Count>0)
+					try
 					{
-						opcDa.WriteValuesToOpcDa(arrFullNames, arrTestsValues);
+						sr = new StreamReader(mapPath);
 					}
+					catch (Exception e)
+					{
+						throw e;
+					}
+				}
+				else
+				{
+					Exception e = new Exception("File Map does not Exists!!");
+					throw e;
+				}
+				return sr;
+			}
+
+
+			public static void InitRabbitMQ()
+			{				
+				log.Info(string.Format("Loading Amqp Driver Config..."));
+				var amqpConfig = Util.LoadAmqpConfig();
+				amqp = WrapperConnection.GetInstance();
+				amqp.SetConfig = amqpConfig;
+				Console.WriteLine("Connecting Amqp Driver...");
+				log.Info(string.Format("Connecting Amqp Driver..."));
+
+				try { 
+					amqp.Connect(); 
+					Console.WriteLine("Amqp Driver Connected");
+					log.Info(string.Format("Amqp Driver Connected"));
 				}
 				catch (Exception e)
 				{
+					Console.WriteLine(e);
 					log.Error(e);
-					Console.WriteLine("Error: ", e.Message);
-				}
+				}			
 
+				exchange = amqpConfig.amqp.exchange; //"ANAQ.STREAM";
+				routinKey = amqpConfig.amqp.baseRoutingKey;//"ALTO.StreamDataEstadosEquipamento.Json";
+				log.Info(string.Format("exchange: " + exchange));
+				log.Info(string.Format("routinKey: " + routinKey));
+				RunAmqpPub();
 			}
 
-			private static void SaveToCsvFileForMatrikon(ArrayList names)
+			public static void RunAmqpPub()
 			{
-				int nid = rand.Next(0, 100);
-				Console.WriteLine("Save to Matrikon .csv file");
-				string npathId = $"{pathCsvMatrikon}_{nid}.csv";			
-				log.Info(string.Format("Save to Matrikon .csv file"));
-				string fullPath = Path.Combine(base_path, npathId);
-
-				if (!File.Exists(fullPath))
+				pub = new Publisher
 				{
-					// Create a file to write to.
-					string head = "#OPC Server for Matrikon - Alias CSV File" + Environment.NewLine;
-					File.WriteAllText(fullPath, head);
-				}
+					SetConnection = amqp.GetConnection,
+					SetExchange = exchange,
+					SetRoutingKey = routinKey
+				};				
 
-				using (var w = File.CreateText(fullPath))
-				{
-					string header = "#OPC Server for Matrikon - Alias CSV File";
-					w.WriteLine(header);
+				pub.Init();
+				pub.Start();		
 
-					foreach (string name in names)
-					{
-						var first = name.Remove(name.LastIndexOf('.')); ;
-						var second = name.Split('.').Last();
-						var line = string.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20}",
-												first, second, "", 4, 0, 0, 0, 0, "", "", "", "", "", 0, 0, "Alias", 0, 1, "", 0, 0);
-						w.WriteLine(line);
-						w.Flush();
-					}
-				}
+				Console.WriteLine("Publishing to RabbitMQ...\n");
+				log.Info(string.Format("Publishing to RabbitMQ..."));
+								
 			}
-
-			private static void SaveToCsvFileForOpcDa(ArrayList names)
-			{
-				Console.WriteLine("Save to OpcDa Map .csv file \n\n");
-				log.Info(string.Format("Save to  OpcDa Map .csv file"));
-				string fullPath = Path.Combine(base_path, pathCsvOpcDa);
-
-				if (!File.Exists(fullPath))
-				{
-					// Create a file to write to.
-					string head = "UrlOPC;Description;Mode;Outgoing Address;Format;Scale;Offset" + Environment.NewLine;
-					File.WriteAllText(fullPath, head);
-				}
-
-				using (var w = File.CreateText(fullPath))
-				{
-					string header = "UrlOPC;Description;Mode;Outgoing Address;Format;Scale;Offset";
-					w.WriteLine(header);
-
-					foreach (string name in names)
-					{
-						var urlOpc = name;
-						var description = name.Remove(name.LastIndexOf('.'));
-						var mode = "Write";
-						var outAddress = name;
-						var format = "Float";
-
-						var line = string.Format("{0};{1};{2};{3};{4};{5};{6}",
-												urlOpc, description, mode, outAddress, format, 1, 0);
-						w.WriteLine(line);
-						w.Flush();
-					}
-				}
-			}			
 
 			public static void AddDriver(Driver driver, SectionData section)
 			{

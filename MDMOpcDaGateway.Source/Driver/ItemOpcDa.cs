@@ -1,10 +1,6 @@
 ﻿using MDMOpcDaGateway.Sources.Interfaces;
 using Opc.Da;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MDMOpcDaGateway.Sources
 {
@@ -145,6 +141,63 @@ namespace MDMOpcDaGateway.Sources
 			     
 				return itemOpcDa;
 			}
+
+			public static ItemOPCMapResult ParserToOPCMapResult(RawItemOPCMapResult _rawResult)
+			{
+				ItemOPCMapResult result = new ItemOPCMapResult
+				{
+					ItemName = _rawResult.ItemName,
+					TimeStamp = DateTime.Parse(_rawResult.TimeStamp),
+					Validated = false,
+					Value = -9999,
+				};
+
+				if (_rawResult.Quality == "good" || _rawResult.Quality == "goodOverRide")
+				{
+					result.Validated = true;
+
+					try
+					{
+						result.Value = float.Parse(_rawResult.Value);
+					}
+					catch (Exception e)
+					{
+						throw e;
+					}
+				}
+
+				else
+				{
+					result.Validated = false;
+				}
+
+				return result;
+			}
+			public static RawItemOPCMapResult ParserToRawItemResult(ItemValueResult _result)
+			{
+				RawItemOPCMapResult result = new RawItemOPCMapResult
+				{
+					ItemName = _result.ItemName,
+					TimeStamp = _result.Timestamp.ToString(),
+					Value = _result.Value.ToString(),
+					Quality = _result.Quality.ToString(),
+				};
+
+				return result;
+			}
+
+			public struct RawItemOPCMapResult
+			{
+				public string ItemName, TimeStamp, Value, Quality;
+				public RawItemOPCMapResult(string s1, string s2, string s3, string s4)
+				{
+					this.ItemName = s1;
+					this.TimeStamp = s2;
+					this.Value = s3;
+					this.Quality = s4;
+				}
+			}
+
 
 			//Estrutura RawItemOpcDa de acordo ao formato do arquivo de endereços a ser carregado
 			private struct RawItemOpcDa

@@ -1,13 +1,10 @@
-﻿using MDMOpcDaGateway.Sources.Interfaces;
+﻿using DriverAmqp.Sources;
+using Newtonsoft.Json;
 using Opc.Da;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 
 namespace MDMOpcDaGateway.Sources
 {
@@ -18,22 +15,18 @@ namespace MDMOpcDaGateway.Sources
 			static Subscription group;
 
 			private OPCParameters param;
-
-			#region Attributes of the Opc Da Driver
+		
 			private Server server;
 			private List<ItemOpcDa> listItemOpcDa;
 			private List<Item> listItems;
-
-
-			static Item[] itemsToAdd;
-			static ItemValue[] writeValues;
-			#endregion
+			private List<ItemOpcDa.ItemOPCMapResult> listToOpcMsg;
+		
 
 			public OPCClientDa()
 			{
 				listItemOpcDa = new List<ItemOpcDa>();
 				listItems = new List<Item>();
-
+			    listToOpcMsg = new List<ItemOpcDa.ItemOPCMapResult>();
 			}
 
 			public override void Init()
@@ -44,6 +37,18 @@ namespace MDMOpcDaGateway.Sources
 					ProgID = base.Parameters.Keys["ProgID"],
 					Map = base.Parameters.Keys["Map"],
 				};
+
+				try
+				{
+					///Create ItemsOpcDa in the list of object driver
+					CreateItems(param.Map); /// get items from csv file map
+					base.q_State.Enqueue(StateDriver.Initilized);
+
+				}
+				catch (Exception e)
+				{
+					log.Error(e);
+				}
 			}
 			
 			protected override void Start()
@@ -72,125 +77,36 @@ namespace MDMOpcDaGateway.Sources
 			{
 				base.q_State.Clear();
 				this.server.Disconnect();
-			}	
+			}
 
-			public void WriteValuesToOpcDa(ArrayList itemNames, ArrayList itemValues)
+
+			private void CreateItems(string _map)
 			{
-				List<Item> itemsNotFound;			
-				//Console.WriteLine("Writing Items' Values to Server... \n");				
 
-				//create the items to write (if the group does not have it, we need to insert it)
-				itemsToAdd = new Item[itemNames.Count];
-				for (int idx = 0; idx < itemNames.Count; idx++)
+				try
 				{
-					itemsToAdd[idx] = new Item { ItemName = (string)itemNames[idx] };
-				}
-							   
-				//create the items that contains the values to write
-				writeValues = new ItemValue[itemValues.Count];
-				for (int idj = 0; idj < itemValues.Count; idj++)
-				{
-					writeValues[idj] = new ItemValue (itemsToAdd[idj]);					
-				}
+					StreamReader sr = Process.ReadMapFromFile(_map);
 
-				if (group != null)
-				{
-					int numbersOfItems = group.Items.Length;
-					if (numbersOfItems > 0)
+					//Discard the Header Line
+					string header = sr.ReadLine();
+
+					while (!sr.EndOfStream)
 					{
-						//make a scan of group to see if it already contains the item	
-						itemsNotFound = CheckIfGroupContainItem(itemsToAdd);
-						if (itemsNotFound.Count > 0)
-						{
-							Console.WriteLine("Adding {0} Not-found Items to Group", itemsNotFound.Count);
-							AddAllItemsToGroup(itemsNotFound.ToArray());
-						}
+						var line = sr.ReadLine();
+						var columns = line.Split(';');
+
+						ItemOpcDa itemOpcDa = ItemOpcDa.CreateItemOpcDa(columns);
+
+						itemOpcDa.refDriver = this;
+						///Add to list of the object
+						listItemOpcDa.Add(itemOpcDa);
 					}
-
-					if (numbersOfItems == 0) { AddAllItemsToGroup(itemsToAdd); }
-
-					SetAndWriteValues(writeValues, itemValues);
 				}
-				else
+				catch (Exception e)
 				{
-					log.Error("Group of OpcDa Items is Null");
-					Console.WriteLine("Group of OpcDa Items is Null");
+					log.Error("Error Reading Map File!", e);
 				}
-				
-			}
-
-			private void AddAllItemsToGroup(Item[] itemsToAdd)
-			{				
-				Console.WriteLine("Adding all {0} Items to Group", itemsToAdd.Length);			
-				
-				Item[] writeItems = new Item[itemsToAdd.Length];
-				int idx = 0;
-				foreach (Item item in itemsToAdd)
-				{
-					writeItems[idx] = item;
-				    idx++;							
-					Console.WriteLine("New Item inserted: " + item.ItemName);						
-				}
-		
-				group.AddItems(writeItems);				
-				Console.WriteLine("Recongized Items in Group: {0} \n", group.Items.Length);
-				//PrintItemsNames();
-			}
-
-			private void SetAndWriteValues(ItemValue[] writeValues, ArrayList itemValues)
-			{
-				Console.WriteLine("Writing Values for {0} Items, if found in Group ({1} items)", itemValues.Count, group.Items.Length);			
-				int idx = 0;				
-				foreach (ItemValue writeValue in writeValues)
-				{ 	
-					foreach (Item item in group.Items)
-					{
-						if (string.Equals(writeValue.ItemName, item.ItemName))
-						{
-							writeValue.ServerHandle = item.ServerHandle;
-							writeValue.Value = itemValues[idx];
-							Console.WriteLine("Writing item: " + writeValue.ItemName + " " + idx.ToString());							
-						}						
-					}
-					idx++;					
-				}
-				//write the value of the item
-				Console.WriteLine("\n");
-				group.Write(writeValues);
-			}
-
-
-			private List<Item> CheckIfGroupContainItem(Item[] itemsToAdd)
-			{
-			    //Console.WriteLine("Group items Size = {0}\n", group.Items.Length);				
-				List<Item> itemsNotFound = new();
-			    bool itemsFound;				
-
-				foreach (Item itemAdd in itemsToAdd)
-				{
-					itemsFound = false;
-					foreach (Item item in group.Items)
-				    {
-						if (String.Equals(itemAdd.ItemName, item.ItemName)) //if it find the iem, set the new value
-						{						
-							itemsFound = true;							
-						}																
-					}
-					if(!itemsFound) { itemsNotFound.Add(itemAdd); }  
-					
-				}
-				//Console.WriteLine("Not-Found Items Size = {0}\n", itemsNotFound.Count);	
-				return itemsNotFound;
-			}
-
-			private void PrintItemsNames()
-			{
-				foreach (Item item in group.Items)
-				{
-					Console.WriteLine("New Item: " + item.ItemName);
-				}
-				Console.WriteLine("\n");
-			}
+			}			
 
 			private void LogState(object stateinfo)
 			{
@@ -215,20 +131,118 @@ namespace MDMOpcDaGateway.Sources
 				
 					log.Info(string.Format("Connected to the Server : {0} - {1} ", this.param.NodeServer, this.param.ProgID));
 					Console.WriteLine("Connected to the Server : {0} - {1}\n", this.param.NodeServer, this.param.ProgID);
-					
-					SubscriptionState groupState = new SubscriptionState();
-					groupState.Name = base.Name;
-					groupState.Active = true;
-					groupState.UpdateRate = 5000;
-					group = (Subscription)server.CreateSubscription(groupState);					
-					
+
+					SubscriptionState groupState = new SubscriptionState
+					{
+						Name = base.Name,
+						Active = true,
+						UpdateRate = 5000
+					};
+					group = (Subscription)server.CreateSubscription(groupState);
+
+					foreach (ItemOpcDa itemOpcDa in listItemOpcDa)
+					{
+						try
+						{
+							Item _item = new Item
+							{
+								ItemName = itemOpcDa.Address,
+								ClientHandle = itemOpcDa
+							};
+							listItems.Add(_item);
+						}
+						catch (Exception e)
+						{
+							throw e;
+						}
+					}
+					group.AddItems(listItems.ToArray());
+					SetItemsToOpcMsg();
+					group.DataChanged += new DataChangedEventHandler(OnTransactionCompleted);
+
 				}
 				catch (Exception e)
 				{
 					log.Error(e);
 					Console.WriteLine("Error: ", e.Message);
 				}
-			}				
+			}		   
+
+			private void OnTransactionCompleted(object group, object hReq, ItemValueResult[] results)
+			{
+				try
+				{
+					if (results.Length > 0)
+					{
+						Console.WriteLine("Number Items Updated {0}",results.Length);
+
+						foreach (ItemValueResult result in results)
+						{						
+							foreach (var opcMsg in listToOpcMsg)
+							{
+								if (string.Equals(opcMsg.ItemName, result.ItemName))
+                                {
+									if (result.Quality.ToString().ToLower() == "good" || result.Quality.ToString().ToLower() == "goodoverride")
+									{
+										listToOpcMsg.Find(p => p.ItemName == result.ItemName).Value = result.Value;
+										listToOpcMsg.Find(p => p.ItemName == result.ItemName).Validated = true;									
+										Console.WriteLine("Item DataChange: {0}, Value: {1} at TimeStamp: {2}", result.ItemName, result.Value, result.Timestamp);
+										log.Info(string.Format("Item DataChange: {0}, Value: {1} at TimeStamp: {2}", result.ItemName, result.Value, result.Timestamp));
+									} 
+									else
+									{
+										listToOpcMsg.Find(p => p.ItemName == result.ItemName).Value = -9999;
+										listToOpcMsg.Find(p => p.ItemName == result.ItemName).Validated = false;
+									}
+									listToOpcMsg.Find(p => p.ItemName == result.ItemName).TimeStamp = DateTime.Now;
+								}
+							}								
+						}
+						Console.WriteLine("-------------------<");
+
+						var myOpcMsg = new OpcMsgType() { Data = listToOpcMsg.ToArray() };
+						Process.pub.Publish(JsonConvert.SerializeObject(myOpcMsg)); // publishing to Rabbitmq
+
+						Util.SaveJsonFile(myOpcMsg, Path.Combine(Process.base_path, Process.pathJsonOpcMsg));
+						PrintItemsOpcMsg();
+					}
+				}
+				catch (Exception e)
+				{
+					log.Error(e);
+				}
+			}
+
+			private void SetItemsToOpcMsg()
+			{
+				for (int i = 0; i < listItems.Count; i++)
+				{
+					try
+					{
+						var resultOpc = new ItemOpcDa.ItemOPCMapResult
+						{
+							ItemName = listItems[i].ItemName,
+							TimeStamp = DateTime.Now,
+							Validated = false,
+							Value = -9999,
+						};
+						listToOpcMsg.Add(resultOpc);
+					}
+					catch (Exception e)
+					{
+						throw e;
+					}
+				}
+			}
+
+			private void PrintItemsOpcMsg()
+			{
+				foreach (var item in listToOpcMsg)
+				{
+					Console.WriteLine("Item: {0}, Value: {1}, TimeStamp: {2} ",  item.ItemName, item.Value, item.TimeStamp);
+				}
+				Console.WriteLine("\n");
+			}
 
 			private struct OPCParameters
 			{

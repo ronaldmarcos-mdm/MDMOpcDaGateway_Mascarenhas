@@ -1,5 +1,4 @@
 ﻿using IniParser.Model;
-using MDMOpcDaGateway.Sources.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -32,62 +31,56 @@ namespace MDMOpcDaGateway.Sources
 			public void Run()
 			{
 				log.Info(string.Format("Executing Driver: {0}", Name));			
+													
+				this.globalRunning = true;
 				try
-				{									
-					this.globalRunning = true;
-					try
+				{
+					//general loop with restarting process
+					while (globalRunning)
 					{
-						//general loop with restarting process
-						while (globalRunning)
+						try
 						{
-							try
-							{
-								Start();								
-								this.running = true;
-								log.Info(string.Format("Starting Driver: {0}", Name));
+							Start();								
+							this.running = true;
+							log.Info(string.Format("Starting Driver: {0}", Name));
 
-								//local flag for internal loop   
-								while (running)
-								{
-									//keepalive
-									try
-									{
-										running = CheckRunning();
-									}
-									catch (Exception e)
-									{
-										log.Error(e);
-										running = false;
-									}
-									Thread.Sleep(5000);
-								}
+							//local flag for internal loop   
+							while (running)
+							{
+								//keepalive
 								try
 								{
-									Close();
-
+									running = CheckRunning();
 								}
 								catch (Exception e)
 								{
 									log.Error(e);
+									running = false;
 								}
+								Thread.Sleep(5000);
+							}
+							try
+							{
+								Close();
 							}
 							catch (Exception e)
 							{
 								log.Error(e);
 							}
-							log.Info(string.Format("Restarting Driver: {0}!", this.Name));
-							Thread.Sleep(5000);
 						}
-					}
-					catch (Exception e)
-					{
-						log.Error(e);
+						catch (Exception e)
+						{
+							log.Error(e);
+						}
+						log.Info(string.Format("Restarting Driver: {0}!", this.Name));
+						Thread.Sleep(5000);
 					}
 				}
 				catch (Exception e)
 				{
 					log.Error(e);
 				}
+			
 			}
 
 			public abstract void Init();
